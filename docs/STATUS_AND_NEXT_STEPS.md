@@ -1,36 +1,56 @@
 # BreakMoney implementation status
 
-## Implemented baseline
-- React, Vite and TypeScript web client with responsive dashboard.
-- Firebase Authentication email/password registration, sign-in and password reset.
-- Firestore group membership, expense activity and vault summary listeners.
-- Callable Cloud Functions for group creation and equal-split expense recording.
-- Server-side integer-paise validation and deterministic remainder allocation.
-- Admin-only invite creation with a cryptographically random token; only its SHA-256 hash is stored.
-- Invite redemption with expiry, use-count and group-size checks; group membership updates are transactional.
-- Dashboard invite-link creation and invite acceptance through the `?invite=` URL parameter.
-- Admin-only manual cash contribution ledger entry, explicitly marked `manual_unverified`.
-- Settlement suggestion calculation from recorded expenses; suggestions do not initiate or confirm payments.
-- Dashboard controls for invites, manual cash entries and settlement suggestions.
-- Secure callable group-member directory with profile names, email addresses and admin/member roles.
-- Basic user profile document created during registration.
-- Member-only group ledger endpoint and dashboard ledger history for expenses and manual contributions; ledger refreshes after new entries.
-- Invite-link display survives clipboard permission failures.
-- Deny-by-default Firestore rules and member-scoped receipt storage rules.
+## Implemented in the web codebase
+
+- React, Vite and TypeScript responsive web client.
+- Firebase email/password registration, email verification, sign-in, logout and password reset.
+- User profile documents and verified-email sign-in enforcement.
+- Group creation, membership directory and realtime group/vault/expense listeners.
+- Admin-only invitation creation with cryptographically random tokens; only SHA-256 token hashes are stored.
+- Invite expiry, usage limits, redemption, revocation and admin invite history.
+- Group member role changes, member removal, leave-group safeguards and creator/last-admin protections.
+- Equal and custom per-member expense splits with server-side paise and total validation.
+- Group ledger history, admin-recorded manual cash entries marked unverified.
+- Settlement suggestions based on recorded expense shares.
+- Participant settlement reports marked unverified; reports do not alter balances or claim payment completion.
+- Razorpay order creation with server-side credentials, checkout signature validation, provider payment-status lookup and payment.captured webhook verification.
+- Idempotent payment finalization: duplicate webhook/callable delivery for the same captured payment does not credit the vault twice.
+- Dashboard Razorpay Checkout integration and visible error handling.
+- Deny-by-default Firestore rules, constrained user profile writes and member-only receipt Storage rules.
 - Firebase Hosting SPA configuration.
+- GitHub Actions workflow for web and Cloud Functions build checks.
 
-## Remaining work
-- Role changes, remove/leave group and invite revocation.
-- Verified digital contributions, vault debit operations and low-balance notifications.
-- Settlement confirmation records and Razorpay-backed payment flow with webhook idempotency.
-- Custom/percentage splits, expense editing and deletion policy.
-- Numeric email OTP (requires a secure server-side OTP delivery provider; Firebase email verification is link-based).
-- FCM notifications, analytics, platform administration and audit tooling.
-- Automated tests, App Check, accessibility/performance review and deployment.
-- Expo Android client (Phase 3).
+## Required owner setup before payments can be used
 
-## Safety boundaries
-A Firestore vault balance is an application ledger, not custody of pooled funds. Manual contributions are explicitly unverified and must not be represented as verified payments. Settlement suggestions are calculations only, not proof of payment. Do not show a digital payment as successful until verified server-side. Never commit local environment files, service-account keys, SMTP credentials or Razorpay secrets.
+- Enable Firebase Blaze billing and configure a budget alert.
+- Set RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET and RAZORPAY_WEBHOOK_SECRET in Firebase Secret Manager.
+- Enable automatic capture in the Razorpay merchant dashboard.
+- Register the deployed razorpayWebhook endpoint for payment.captured.
+- Run Razorpay test-mode success, failure, duplicate-webhook and amount-mismatch tests.
+- Deploy Cloud Functions and Hosting only after reviewing the target Firebase project.
 
-## Build verification
-Dependency installation timed out in the current build environment, so a successful TypeScript/Vite build has not yet been confirmed. Run `npm install` then `npm run build`. Deploy Cloud Functions only after enabling the required Firebase billing plan and configuring secrets.
+## Remaining production and product work
+
+- Run and fix the GitHub Actions build; dependency installation and compilation have not been locally verified in this environment.
+- Firebase Emulator Suite tests for auth, rules, group lifecycle, splits, payments and webhook idempotency.
+- App Check and production abuse/rate-limit controls.
+- FCM push notifications and low-vault alerts.
+- Expense edit/delete policy and audit-safe correction entries.
+- Settlement recipient confirmation workflow; a participant report is not independent payment verification.
+- Admin analytics and platform-level administration.
+- Accessibility, security, performance and responsive device QA.
+- Provider/legal review for any pooled funds, custody, escrow, stored value, withdrawals or payout features.
+- Expo Android application (Phase 3).
+
+## Financial safety boundaries
+
+- All monetary values use integer paise.
+- A Firestore vault is an application accounting ledger, not custody of pooled customer funds.
+- Only provider-captured Razorpay payments are marked as verified digital contributions.
+- Manual cash entries and participant-reported settlements remain unverified.
+- Settlement suggestions do not initiate payment.
+- Never expose Razorpay secrets, service-account credentials or other private keys in client code or Git.
+
+## Build/deployment status
+
+Source and workflow files have been pushed to GitHub. A successful CI build and Firebase deployment have not yet been confirmed. Payment processing is not active until the owner completes the setup above.
