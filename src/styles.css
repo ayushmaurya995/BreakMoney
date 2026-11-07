@@ -32,3 +32,6 @@
 .transfer-tools .outline{font-size:10px;padding:7px 9px}
 .modal select{border:1px solid #e1e7dd;border-radius:10px;padding:12px;background:#fbfcfa;color:#14231d}
 @media(max-width:640px){.custom-shares label{grid-template-columns:1fr 100px}.transfer-tools{align-items:flex-end;flex-direction:column;gap:5px}}
+
+.error-banner{display:flex;align-items:center;justify-content:space-between;gap:12px;background:#fff1f0;color:#9b2c25;border:1px solid #f2d0cd;border-radius:12px;padding:12px 15px;margin-bottom:14px;font-size:12px}
+.error-banner button{border:0;background:transparent;color:#9b2c25;font-weight:800;white-space:nowrap}
