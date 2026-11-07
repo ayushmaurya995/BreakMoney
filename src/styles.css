@@ -35,3 +35,7 @@
 
 .error-banner{display:flex;align-items:center;justify-content:space-between;gap:12px;background:#fff1f0;color:#9b2c25;border:1px solid #f2d0cd;border-radius:12px;padding:12px 15px;margin-bottom:14px;font-size:12px}
 .error-banner button{border:0;background:transparent;color:#9b2c25;font-weight:800;white-space:nowrap}
+
+.header-actions{display:flex;align-items:center;gap:10px}
+.header-actions .outline{font-size:10px;padding:8px 11px;white-space:nowrap}
+@media(max-width:640px){.header-actions{gap:6px}.header-actions .outline{font-size:9px;padding:7px 8px}.user-pill{max-width:35%}}
