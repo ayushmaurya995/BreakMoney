@@ -4,6 +4,7 @@ import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { getMessaging } from 'firebase-admin/messaging';
 import { onCall, onRequest, HttpsError } from 'firebase-functions/v2/https';
 import { defineSecret } from 'firebase-functions/params';
+import { splitEqually, validateCustomSplit, calculateSettlementTransfers } from './domain.js';
 import { setGlobalOptions } from 'firebase-functions/v2';
 initializeApp();
 setGlobalOptions({ region: 'asia-south1', maxInstances: 10 });
@@ -86,21 +87,12 @@ export const recordExpense = onCall(async request => {
     const members: string[] = groupSnap.data()?.memberUids ?? [uid];
     const splitType = request.data?.splitType === 'custom' ? 'custom' : 'equal';
     let shares: Array<{ uid: string; amountPaise: number }>;
-    if (splitType === 'custom') {
-      const supplied = request.data?.shares;
-      if (!Array.isArray(supplied) || supplied.length !== members.length) throw new HttpsError('invalid-argument', 'Enter a share amount for every active member.');
-      const seen = new Set<string>();
-      shares = supplied.map((item: { uid?: unknown; amountPaise?: unknown }) => {
-        const shareUid = String(item?.uid ?? '');
-        const shareAmount = Number(item?.amountPaise);
-        if (!members.includes(shareUid) || seen.has(shareUid) || !Number.isSafeInteger(shareAmount) || shareAmount < 0) throw new HttpsError('invalid-argument', 'Custom shares contain an invalid member or amount.');
-        seen.add(shareUid);
-        return { uid: shareUid, amountPaise: shareAmount };
-      });
-      if (seen.size !== members.length || shares.reduce((sum, share) => sum + share.amountPaise, 0) !== amountPaise) throw new HttpsError('invalid-argument', 'Custom shares must add up exactly to the expense total.');
-    } else {
-      const each = Math.floor(amountPaise / members.length), remainder = amountPaise % members.length;
-      shares = members.map((memberUid, index) => ({ uid: memberUid, amountPaise: each + (index < remainder ? 1 : 0) }));
+    try {
+      shares = splitType === 'custom'
+        ? validateCustomSplit(amountPaise, members, request.data?.shares)
+        : splitEqually(amountPaise, members);
+    } catch (error) {
+      throw new HttpsError('invalid-argument', error instanceof Error ? error.message : 'Invalid expense split.');
     }
     tx.create(expenseRef, { description, amountPaise, currency: 'INR', category: 'General', paidBy: uid, splitType, shares, createdBy: uid, createdAt: FieldValue.serverTimestamp(), status: 'recorded' });
     tx.create(groupRef.collection('ledger').doc(), { type: 'expense_recorded', referenceId: expenseRef.id, amountPaise, actorUid: uid, description, createdAt: FieldValue.serverTimestamp(), status: 'recorded' });
@@ -177,30 +169,14 @@ export const getSettlementSuggestions = onCall(async request => {
   const memberSnap = await groupRef.collection('members').doc(uid).get();
   if (!memberSnap.exists) throw new HttpsError('permission-denied', 'You are not a member of this group.');
   const expenseSnap = await groupRef.collection('expenses').where('status', '==', 'recorded').get();
-  const net = new Map<string, number>();
-  for (const expenseDoc of expenseSnap.docs) {
-    const expense = expenseDoc.data();
-    const amount = Number(expense.amountPaise);
-    if (!Number.isSafeInteger(amount) || amount <= 0) continue;
-    const payer = String(expense.paidBy ?? '');
-    if (!payer) continue;
-    net.set(payer, (net.get(payer) ?? 0) + amount);
-    for (const share of (expense.shares ?? []) as Array<{uid:string;amountPaise:number}>) {
-      if (typeof share.uid !== 'string' || !Number.isSafeInteger(share.amountPaise)) continue;
-      net.set(share.uid, (net.get(share.uid) ?? 0) - share.amountPaise);
-    }
-  }
-  const creditors = [...net.entries()].filter(([,value]) => value > 0).map(([memberUid,value])=>({uid:memberUid,amount:value})).sort((a,b)=>b.amount-a.amount);
-  const debtors = [...net.entries()].filter(([,value]) => value < 0).map(([memberUid,value])=>({uid:memberUid,amount:-value})).sort((a,b)=>b.amount-a.amount);
-  const transfers: Array<{fromUid:string;toUid:string;amountPaise:number}> = [];
-  let i=0,j=0;
-  while(i<debtors.length && j<creditors.length){
-    const amount=Math.min(debtors[i].amount,creditors[j].amount);
-    if(amount>0)transfers.push({fromUid:debtors[i].uid,toUid:creditors[j].uid,amountPaise:amount});
-    debtors[i].amount-=amount;creditors[j].amount-=amount;
-    if(debtors[i].amount===0)i++;
-    if(creditors[j].amount===0)j++;
-  }
+  const transfers = calculateSettlementTransfers(expenseSnap.docs.map(doc => {
+    const expense = doc.data();
+    return {
+      amountPaise: Number(expense.amountPaise),
+      paidBy: String(expense.paidBy ?? ''),
+      shares: (expense.shares ?? []) as Array<{ uid: string; amountPaise: number }>
+    };
+  }));
   return {transfers, computedAt:new Date().toISOString(), note:'Suggestions only. No payment has been initiated or verified.'};
 });
 export const health = onCall(async request => { requireUid(request.auth?.uid); return { ok: true, region: 'asia-south1' }; });
