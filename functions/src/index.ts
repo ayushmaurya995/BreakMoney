@@ -476,3 +476,44 @@ export const reportSettlement = onCall(async request => {
   });
   return { reportId: reportRef.id, status: 'reported_unverified', note: 'A report is not proof of payment and does not change settlement balances.' };
 });
+
+export const recordVaultSpend = onCall(async request => {
+  const uid = requireUid(request.auth?.uid);
+  const groupId = String(request.data?.groupId ?? '');
+  const description = String(request.data?.description ?? '').trim();
+  const amountPaise = validAmount(request.data?.amountPaise);
+  if (!groupId || description.length < 2 || description.length > 120) throw new HttpsError('invalid-argument', 'A group and valid description are required.');
+  const groupRef = db.collection('groups').doc(groupId);
+  const vaultRef = groupRef.collection('vault').doc('summary');
+  const ledgerRef = groupRef.collection('ledger').doc();
+  let remainingBalance = 0;
+  let threshold = 0;
+  await db.runTransaction(async tx => {
+    const [groupSnap, memberSnap, vaultSnap] = await Promise.all([tx.get(groupRef), tx.get(groupRef.collection('members').doc(uid)), tx.get(vaultRef)]);
+    if (!groupSnap.exists || groupSnap.data()?.status !== 'active' || !memberSnap.exists) throw new HttpsError('permission-denied', 'You must be an active group member.');
+    if (memberSnap.data()?.role !== 'admin') throw new HttpsError('permission-denied', 'Only group admins can record a vault spend.');
+    const current = Number(vaultSnap.data()?.balancePaise ?? 0);
+    if (current < amountPaise) throw new HttpsError('failed-precondition', 'The vault does not have enough recorded balance for this spend.');
+    remainingBalance = current - amountPaise;
+    threshold = Number(vaultSnap.data()?.lowBalanceThresholdPaise ?? 0);
+    tx.set(vaultRef, { balancePaise: remainingBalance, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    tx.create(ledgerRef, { type: 'manual_vault_spend', description, amountPaise, actorUid: uid, verification: 'manual_unverified', createdAt: FieldValue.serverTimestamp() });
+  });
+  await notifyGroupMembers(groupId, 'Group vault spend recorded', description, uid);
+  if (threshold > 0 && remainingBalance <= threshold) await notifyGroupMembers(groupId, 'Group vault running low', 'The recorded vault balance has reached its configured low-balance threshold.');
+  return { ledgerEntryId: ledgerRef.id, balancePaise: remainingBalance, verification: 'manual_unverified' };
+});
+
+export const setVaultLowBalanceThreshold = onCall(async request => {
+  const uid = requireUid(request.auth?.uid);
+  const groupId = String(request.data?.groupId ?? '');
+  const thresholdPaise = Number(request.data?.thresholdPaise);
+  if (!groupId || !Number.isSafeInteger(thresholdPaise) || thresholdPaise < 0 || thresholdPaise > 100000000000) throw new HttpsError('invalid-argument', 'Enter a valid threshold in paise.');
+  const groupRef = db.collection('groups').doc(groupId);
+  await db.runTransaction(async tx => {
+    const [groupSnap, memberSnap] = await Promise.all([tx.get(groupRef), tx.get(groupRef.collection('members').doc(uid))]);
+    if (!groupSnap.exists || !memberSnap.exists || memberSnap.data()?.role !== 'admin') throw new HttpsError('permission-denied', 'Only group admins can change the low-balance alert.');
+    tx.set(groupRef.collection('vault').doc('summary'), { lowBalanceThresholdPaise: thresholdPaise, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+  });
+  return { thresholdPaise };
+});
