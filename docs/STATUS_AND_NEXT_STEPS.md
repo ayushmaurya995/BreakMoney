@@ -11,6 +11,8 @@
 - Group member role changes, member removal, leave-group safeguards and creator/last-admin protections.
 - Equal and custom per-member expense splits with server-side paise and total validation.
 - Group ledger history, admin-recorded manual cash entries marked unverified.
+- Admin-only vault spending with balance checks and configurable low-balance threshold.
+- FCM web device registration, foreground/background notifications and group activity alerts.
 - Settlement suggestions based on recorded expense shares.
 - Participant settlement reports marked unverified; reports do not alter balances or claim payment completion.
 - Razorpay order creation with server-side credentials, checkout signature validation, provider payment-status lookup and payment.captured webhook verification.
@@ -18,12 +20,14 @@
 - Dashboard Razorpay Checkout integration and visible error handling.
 - Deny-by-default Firestore rules, constrained user profile writes and member-only receipt Storage rules.
 - Firebase Hosting SPA configuration.
-- GitHub Actions workflow for web and Cloud Functions build checks.
+- GitHub Actions workflow for web build and Cloud Functions unit tests.
+- Unit tests for equal/custom split validation and settlement calculations.
 
 ## Required owner setup before payments can be used
 
 - Enable Firebase Blaze billing and configure a budget alert.
 - Set RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET and RAZORPAY_WEBHOOK_SECRET in Firebase Secret Manager.
+- Add VITE_FIREBASE_VAPID_KEY from Firebase Console to the web build environment to enable web push.
 - Enable automatic capture in the Razorpay merchant dashboard.
 - Register the deployed razorpayWebhook endpoint for payment.captured.
 - Run Razorpay test-mode success, failure, duplicate-webhook and amount-mismatch tests.
