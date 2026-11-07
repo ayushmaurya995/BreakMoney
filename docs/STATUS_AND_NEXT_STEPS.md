@@ -42,7 +42,7 @@
 - App Check and production abuse/rate-limit controls.
 - Extend push notifications to invite lifecycle and additional account events.
 - Full edit workflow; corrections currently use append-only voiding and a replacement expense.
-- Settlement recipient confirmation workflow; a participant report is not independent payment verification.
+- Settlement recipient confirmation is implemented as a two-party acknowledgement; provider verification remains separate.
 - Admin analytics and platform-level administration.
 - Accessibility, security, performance and responsive device QA.
 - Provider/legal review for any pooled funds, custody, escrow, stored value, withdrawals or payout features.
