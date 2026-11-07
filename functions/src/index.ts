@@ -1,7 +1,7 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
-import { onCall, HttpsError } from 'firebase-functions/v2/https';
+import { onCall, onRequest, HttpsError } from 'firebase-functions/v2/https';\nimport { defineSecret } from 'firebase-functions/params';
 import { setGlobalOptions } from 'firebase-functions/v2';
 initializeApp();
 setGlobalOptions({ region: 'asia-south1', maxInstances: 10 });
@@ -285,4 +285,101 @@ export const listGroupInvites = onCall(async request => {
   if (!memberSnap.exists || memberSnap.data()?.role !== 'admin') throw new HttpsError('permission-denied', 'Only group admins can view invites.');
   const invites = await db.collection('groupInvites').where('groupId', '==', groupId).orderBy('createdAt', 'desc').limit(20).get();
   return { invites: invites.docs.map(d => ({ id: d.id, status: d.data().status, uses: d.data().uses ?? 0, maxUses: d.data().maxUses ?? 0, expiresAt: d.data().expiresAt?.toDate?.()?.toISOString?.() ?? null })) };
+});
+
+const razorpayKeyId = defineSecret('RAZORPAY_KEY_ID');
+const razorpayKeySecret = defineSecret('RAZORPAY_KEY_SECRET');
+const razorpayWebhookSecret = defineSecret('RAZORPAY_WEBHOOK_SECRET');
+
+function razorpayAuthorization() {
+  const id = razorpayKeyId.value();
+  const secret = razorpayKeySecret.value();
+  if (!id || !secret) throw new HttpsError('failed-precondition', 'Razorpay is not configured. Ask the project administrator to set payment secrets.');
+  return { id, header: 'Basic ' + Buffer.from(id + ':' + secret).toString('base64') };
+}
+
+async function finalizeCapturedPayment(orderId: string, paymentId: string, amount: number, currency: string) {
+  const orderRef = db.collection('razorpayOrders').doc(orderId);
+  await db.runTransaction(async tx => {
+    const orderSnap = await tx.get(orderRef);
+    if (!orderSnap.exists) throw new HttpsError('not-found', 'Payment order was not found.');
+    const order = orderSnap.data()!;
+    if (Number(order.amountPaise) !== amount || order.currency !== currency || currency !== 'INR') throw new HttpsError('failed-precondition', 'Payment amount or currency does not match the order.');
+    if (order.status === 'captured') {
+      if (order.paymentId !== paymentId) throw new HttpsError('already-exists', 'This order was already completed with another payment.');
+      return;
+    }
+    if (order.status !== 'created') throw new HttpsError('failed-precondition', 'This payment order is no longer payable.');
+    const groupRef = db.collection('groups').doc(String(order.groupId));
+    const vaultRef = groupRef.collection('vault').doc('summary');
+    const ledgerRef = groupRef.collection('ledger').doc();
+    const vaultSnap = await tx.get(vaultRef);
+    const current = Number(vaultSnap.data()?.balancePaise ?? 0);
+    if (!Number.isSafeInteger(current + amount)) throw new HttpsError('out-of-range', 'Vault balance is outside the supported range.');
+    tx.set(vaultRef, { balancePaise: current + amount, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    tx.update(orderRef, { status: 'captured', paymentId, capturedAt: FieldValue.serverTimestamp() });
+    tx.create(ledgerRef, { type: 'verified_digital_contribution', description: 'Verified Razorpay contribution', amountPaise: amount, actorUid: order.uid, paymentProvider: 'razorpay', paymentOrderId: orderId, paymentId, verification: 'provider_captured', createdAt: FieldValue.serverTimestamp() });
+  });
+}
+
+export const createRazorpayOrder = onCall({ secrets: [razorpayKeyId, razorpayKeySecret] }, async request => {
+  const uid = requireUid(request.auth?.uid);
+  if (request.auth?.token.email_verified !== true) throw new HttpsError('permission-denied', 'Verify your email before making a payment.');
+  const groupId = String(request.data?.groupId ?? '');
+  const amountPaise = validAmount(request.data?.amountPaise);
+  if (amountPaise < 100 || amountPaise > 5000000) throw new HttpsError('invalid-argument', 'Contribution must be between ₹1 and ₹50,000.');
+  const groupRef = db.collection('groups').doc(groupId);
+  const memberSnap = await groupRef.collection('members').doc(uid).get();
+  if (!groupId || !memberSnap.exists) throw new HttpsError('permission-denied', 'You must be a group member to contribute.');
+  const auth = razorpayAuthorization();
+  const response = await fetch('https://api.razorpay.com/v1/orders', {
+    method: 'POST',
+    headers: { Authorization: auth.header, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ amount: amountPaise, currency: 'INR', receipt: randomBytes(12).toString('hex'), payment_capture: 1, notes: { groupId, uid } })
+  });
+  const data = await response.json() as { id?: string; amount?: number; currency?: string; error?: { description?: string } };
+  if (!response.ok || !data.id || data.amount !== amountPaise || data.currency !== 'INR') throw new HttpsError('internal', data.error?.description ?? 'Razorpay could not create the payment order.');
+  await db.collection('razorpayOrders').doc(data.id).create({ groupId, uid, amountPaise, currency: 'INR', status: 'created', createdAt: FieldValue.serverTimestamp() });
+  return { keyId: auth.id, orderId: data.id, amount: amountPaise, currency: 'INR', name: 'BreakMoney', description: 'Group vault contribution' };
+});
+
+export const verifyRazorpayPayment = onCall({ secrets: [razorpayKeyId, razorpayKeySecret] }, async request => {
+  const uid = requireUid(request.auth?.uid);
+  const orderId = String(request.data?.orderId ?? '');
+  const paymentId = String(request.data?.paymentId ?? '');
+  const signature = String(request.data?.signature ?? '');
+  if (!orderId || !paymentId || !/^[a-f0-9]{64}$/i.test(signature)) throw new HttpsError('invalid-argument', 'Payment verification details are incomplete.');
+  const orderRef = db.collection('razorpayOrders').doc(orderId);
+  const orderSnap = await orderRef.get();
+  if (!orderSnap.exists || orderSnap.data()?.uid !== uid) throw new HttpsError('permission-denied', 'This payment order does not belong to you.');
+  const auth = razorpayAuthorization();
+  const expected = createHmac('sha256', razorpayKeySecret.value()).update(orderId + '|' + paymentId).digest();
+  const supplied = Buffer.from(signature, 'hex');
+  if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) throw new HttpsError('permission-denied', 'Payment signature verification failed.');
+  const response = await fetch('https://api.razorpay.com/v1/payments/' + encodeURIComponent(paymentId), { headers: { Authorization: auth.header } });
+  const payment = await response.json() as { id?: string; order_id?: string; amount?: number; currency?: string; status?: string; error?: { description?: string } };
+  if (!response.ok || payment.order_id !== orderId || payment.status !== 'captured') throw new HttpsError('failed-precondition', payment.error?.description ?? 'Payment is not yet captured by Razorpay.');
+  await finalizeCapturedPayment(orderId, paymentId, Number(payment.amount), String(payment.currency));
+  return { verified: true, status: 'captured' };
+});
+
+export const razorpayWebhook = onRequest({ secrets: [razorpayWebhookSecret] }, async (request, response) => {
+  if (request.method !== 'POST') { response.status(405).send('Method not allowed'); return; }
+  const secret = razorpayWebhookSecret.value();
+  const signature = String(request.header('x-razorpay-signature') ?? '');
+  if (!secret || !signature || !request.rawBody) { response.status(400).send('Missing webhook signature'); return; }
+  const expected = createHmac('sha256', secret).update(request.rawBody).digest();
+  let supplied: Buffer;
+  try { supplied = Buffer.from(signature, 'hex'); } catch { response.status(400).send('Invalid signature'); return; }
+  if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) { response.status(401).send('Invalid webhook signature'); return; }
+  const event = request.body as { event?: string; payload?: { payment?: { entity?: { id?: string; order_id?: string; amount?: number; currency?: string; status?: string } } } };
+  if (event.event !== 'payment.captured') { response.status(200).send('Event ignored'); return; }
+  const payment = event.payload?.payment?.entity;
+  if (!payment?.id || !payment.order_id || payment.status !== 'captured' || !Number.isSafeInteger(payment.amount)) { response.status(400).send('Invalid payment payload'); return; }
+  try {
+    await finalizeCapturedPayment(payment.order_id, payment.id, Number(payment.amount), String(payment.currency));
+    response.status(200).send('Payment recorded');
+  } catch (error) {
+    response.status(500).send(error instanceof Error ? error.message : 'Could not record payment');
+  }
 });
