@@ -12,7 +12,7 @@ const config = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 export const firebaseConfigured = Boolean(config.apiKey && config.projectId && config.appId);
-const app = initializeApp(config);
+export const app = initializeApp(config);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const functions = getFunctions(app, 'asia-south1');
