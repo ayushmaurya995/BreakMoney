@@ -13,3 +13,7 @@
 .settlement-panel>p{font-size:12px}
 .settlement-row{display:flex;justify-content:space-between;align-items:center;border-top:1px solid #eff1ed;padding:12px 0;font-size:12px}
 .settlement-row b{font-size:13px;color:#315d25}
+
+.settlement-row>span{display:grid;gap:4px}
+.settlement-row>span small{font-size:10px;color:#89948d}
+.settlement-row .member-role{font-size:10px;text-transform:capitalize;background:#eff9e4;color:#467c1a;padding:5px 9px;border-radius:20px}
