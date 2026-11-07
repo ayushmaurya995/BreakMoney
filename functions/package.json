@@ -7,7 +7,8 @@
   },
   "scripts": {
     "build": "tsc",
-    "deploy": "firebase deploy --only functions"
+    "deploy": "firebase deploy --only functions",
+    "test": "npm run build && node --test test/*.test.mjs"
   },
   "dependencies": {
     "firebase-admin": "^13.0.0",
