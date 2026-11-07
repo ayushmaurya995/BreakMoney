@@ -140,3 +140,26 @@ export const getSettlementSuggestions = onCall(async request => {
   return {transfers, computedAt:new Date().toISOString(), note:'Suggestions only. No payment has been initiated or verified.'};
 });
 export const health = onCall(async request => { requireUid(request.auth?.uid); return { ok: true, region: 'asia-south1' }; });
+
+export const getGroupMembers = onCall(async request => {
+  const uid = requireUid(request.auth?.uid);
+  const groupId = String(request.data?.groupId ?? '');
+  if (!groupId) throw new HttpsError('invalid-argument', 'Group is required.');
+  const groupRef = db.collection('groups').doc(groupId);
+  const memberSnap = await groupRef.collection('members').doc(uid).get();
+  if (!memberSnap.exists) throw new HttpsError('permission-denied', 'You are not a member of this group.');
+  const membersSnap = await groupRef.collection('members').where('status', '==', 'active').get();
+  const members = await Promise.all(membersSnap.docs.map(async memberDoc => {
+    const member = memberDoc.data();
+    const profileSnap = await db.collection('users').doc(memberDoc.id).get();
+    const profile = profileSnap.data() ?? {};
+    return {
+      uid: memberDoc.id,
+      displayName: String(profile.displayName ?? profile.email ?? 'BreakMoney member').slice(0, 80),
+      email: String(profile.email ?? '').slice(0, 160),
+      role: member.role === 'admin' ? 'admin' : 'member',
+      joinedAt: member.joinedAt?.toDate?.()?.toISOString?.() ?? null
+    };
+  }));
+  return { members };
+});
