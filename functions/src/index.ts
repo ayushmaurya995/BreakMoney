@@ -186,3 +186,103 @@ export const getGroupLedger = onCall(async request => {
     })
   };
 });
+
+export const setGroupMemberRole = onCall(async request => {
+  const actorUid = requireUid(request.auth?.uid);
+  const groupId = String(request.data?.groupId ?? '');
+  const targetUid = String(request.data?.targetUid ?? '');
+  const role = request.data?.role;
+  if (!groupId || !targetUid || !['admin', 'member'].includes(role)) throw new HttpsError('invalid-argument', 'Provide a group, member and valid role.');
+  const groupRef = db.collection('groups').doc(groupId);
+  await db.runTransaction(async tx => {
+    const actorRef = groupRef.collection('members').doc(actorUid);
+    const targetRef = groupRef.collection('members').doc(targetUid);
+    const [groupSnap, actorSnap, targetSnap] = await Promise.all([tx.get(groupRef), tx.get(actorRef), tx.get(targetRef)]);
+    if (!groupSnap.exists || !actorSnap.exists || actorSnap.data()?.role !== 'admin') throw new HttpsError('permission-denied', 'Only group admins can manage roles.');
+    if (!targetSnap.exists || targetSnap.data()?.status !== 'active') throw new HttpsError('not-found', 'Active member not found.');
+    if (groupSnap.data()?.createdBy === targetUid && role !== 'admin') throw new HttpsError('failed-precondition', 'The group creator must remain an admin.');
+    if (targetSnap.data()?.role === 'admin' && role === 'member') {
+      const admins = await tx.get(groupRef.collection('members').where('role', '==', 'admin').where('status', '==', 'active'));
+      if (admins.size <= 1) throw new HttpsError('failed-precondition', 'A group must always have at least one admin.');
+    }
+    tx.update(targetRef, { role, updatedAt: FieldValue.serverTimestamp() });
+    tx.set(db.collection('users').doc(targetUid).collection('groupMemberships').doc(groupId), { role, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    tx.create(groupRef.collection('ledger').doc(), { type: 'member_role_changed', description: 'Member role updated', actorUid, targetUid, role, createdAt: FieldValue.serverTimestamp() });
+  });
+  return { updated: true };
+});
+
+export const removeGroupMember = onCall(async request => {
+  const actorUid = requireUid(request.auth?.uid);
+  const groupId = String(request.data?.groupId ?? '');
+  const targetUid = String(request.data?.targetUid ?? '');
+  if (!groupId || !targetUid || actorUid === targetUid) throw new HttpsError('invalid-argument', 'Choose another member to remove.');
+  const groupRef = db.collection('groups').doc(groupId);
+  await db.runTransaction(async tx => {
+    const [groupSnap, actorSnap, targetSnap] = await Promise.all([
+      tx.get(groupRef), tx.get(groupRef.collection('members').doc(actorUid)), tx.get(groupRef.collection('members').doc(targetUid))
+    ]);
+    if (!groupSnap.exists || !actorSnap.exists || actorSnap.data()?.role !== 'admin') throw new HttpsError('permission-denied', 'Only group admins can remove members.');
+    if (!targetSnap.exists) throw new HttpsError('not-found', 'Member not found.');
+    if (groupSnap.data()?.createdBy === targetUid) throw new HttpsError('failed-precondition', 'The group creator cannot be removed.');
+    if (targetSnap.data()?.role === 'admin') {
+      const admins = await tx.get(groupRef.collection('members').where('role', '==', 'admin').where('status', '==', 'active'));
+      if (admins.size <= 1) throw new HttpsError('failed-precondition', 'Promote another admin before removing this member.');
+    }
+    const members: string[] = groupSnap.data()?.memberUids ?? [];
+    tx.delete(groupRef.collection('members').doc(targetUid));
+    tx.delete(db.collection('users').doc(targetUid).collection('groupMemberships').doc(groupId));
+    tx.update(groupRef, { memberUids: members.filter(id => id !== targetUid), updatedAt: FieldValue.serverTimestamp() });
+    tx.create(groupRef.collection('ledger').doc(), { type: 'member_removed', description: 'Member removed from group', actorUid, targetUid, createdAt: FieldValue.serverTimestamp() });
+  });
+  return { removed: true };
+});
+
+export const leaveGroup = onCall(async request => {
+  const uid = requireUid(request.auth?.uid);
+  const groupId = String(request.data?.groupId ?? '');
+  if (!groupId) throw new HttpsError('invalid-argument', 'Group is required.');
+  const groupRef = db.collection('groups').doc(groupId);
+  await db.runTransaction(async tx => {
+    const [groupSnap, memberSnap] = await Promise.all([tx.get(groupRef), tx.get(groupRef.collection('members').doc(uid))]);
+    if (!groupSnap.exists || !memberSnap.exists) throw new HttpsError('not-found', 'Group membership not found.');
+    if (groupSnap.data()?.createdBy === uid) throw new HttpsError('failed-precondition', 'The group creator cannot leave. Transfer ownership first.');
+    if (memberSnap.data()?.role === 'admin') {
+      const admins = await tx.get(groupRef.collection('members').where('role', '==', 'admin').where('status', '==', 'active'));
+      if (admins.size <= 1) throw new HttpsError('failed-precondition', 'Promote another admin before leaving.');
+    }
+    const members: string[] = groupSnap.data()?.memberUids ?? [];
+    tx.delete(groupRef.collection('members').doc(uid));
+    tx.delete(db.collection('users').doc(uid).collection('groupMemberships').doc(groupId));
+    tx.update(groupRef, { memberUids: members.filter(id => id !== uid), updatedAt: FieldValue.serverTimestamp() });
+    tx.create(groupRef.collection('ledger').doc(), { type: 'member_left', description: 'Member left the group', actorUid: uid, createdAt: FieldValue.serverTimestamp() });
+  });
+  return { left: true };
+});
+
+export const revokeInvite = onCall(async request => {
+  const uid = requireUid(request.auth?.uid);
+  const groupId = String(request.data?.groupId ?? '');
+  const inviteId = String(request.data?.inviteId ?? '');
+  if (!groupId || !inviteId || !/^[a-f0-9]{64}$/.test(inviteId)) throw new HttpsError('invalid-argument', 'Invalid invite reference.');
+  const groupRef = db.collection('groups').doc(groupId);
+  const inviteRef = db.collection('groupInvites').doc(inviteId);
+  await db.runTransaction(async tx => {
+    const [memberSnap, inviteSnap] = await Promise.all([tx.get(groupRef.collection('members').doc(uid)), tx.get(inviteRef)]);
+    if (!memberSnap.exists || memberSnap.data()?.role !== 'admin') throw new HttpsError('permission-denied', 'Only group admins can revoke invites.');
+    if (!inviteSnap.exists || inviteSnap.data()?.groupId !== groupId) throw new HttpsError('not-found', 'Invite not found.');
+    tx.update(inviteRef, { status: 'revoked', revokedAt: FieldValue.serverTimestamp(), revokedBy: uid });
+  });
+  return { revoked: true };
+});
+
+export const listGroupInvites = onCall(async request => {
+  const uid = requireUid(request.auth?.uid);
+  const groupId = String(request.data?.groupId ?? '');
+  if (!groupId) throw new HttpsError('invalid-argument', 'Group is required.');
+  const groupRef = db.collection('groups').doc(groupId);
+  const memberSnap = await groupRef.collection('members').doc(uid).get();
+  if (!memberSnap.exists || memberSnap.data()?.role !== 'admin') throw new HttpsError('permission-denied', 'Only group admins can view invites.');
+  const invites = await db.collection('groupInvites').where('groupId', '==', groupId).orderBy('createdAt', 'desc').limit(20).get();
+  return { invites: invites.docs.map(d => ({ id: d.id, status: d.data().status, uses: d.data().uses ?? 0, maxUses: d.data().maxUses ?? 0, expiresAt: d.data().expiresAt?.toDate?.()?.toISOString?.() ?? null })) };
+});
