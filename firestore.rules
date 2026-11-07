@@ -1,10 +1,53 @@
 rules_version = '2';
 service cloud.firestore {
- match /databases/{database}/documents {
-  function signedIn(){return request.auth != null;}
-  function isMember(groupId){return signedIn() && exists(/databases/$(database)/documents/groups/$(groupId)/members/$(request.auth.uid));}
-  match /users/{uid}{allow read,write:if signedIn() && request.auth.uid==uid;match /groupMemberships/{groupId}{allow read:if signedIn() && request.auth.uid==uid;allow write:false;}}
-  match /groups/{groupId}{allow read:if isMember(groupId);allow write:false;match /{subcollection}/{documentId}{allow read:if isMember(groupId);allow write:false;}match /{subcollection}/{documentId}/{nested=**}{allow read:if isMember(groupId);allow write:false;}}
-  match /{document=**}{allow read,write:false;}
- }
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function isMember(groupId) {
+      return signedIn() && exists(/databases/$(database)/documents/groups/$(groupId)/members/$(request.auth.uid));
+    }
+
+    match /users/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow create: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['email', 'displayName', 'createdAt', 'updatedAt'])
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.displayName is string
+        && request.resource.data.displayName.size() <= 80;
+      allow update: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['email', 'displayName', 'createdAt', 'updatedAt', 'lastLoginAt'])
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.displayName is string
+        && request.resource.data.displayName.size() <= 80;
+      allow delete: if false;
+
+      match /groupMemberships/{groupId} {
+        allow read: if signedIn() && request.auth.uid == uid;
+        allow write: if false;
+      }
+    }
+
+    match /groups/{groupId} {
+      allow read: if isMember(groupId);
+      allow write: if false;
+
+      match /{subcollection}/{documentId} {
+        allow read: if isMember(groupId);
+        allow write: if false;
+      }
+      match /{subcollection}/{documentId}/{nested=**} {
+        allow read: if isMember(groupId);
+        allow write: if false;
+      }
+    }
+
+    match /groupInvites/{inviteId} {
+      allow read, write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
 }
