@@ -301,7 +301,8 @@ export const listGroupInvites = onCall(async request => {
   const memberSnap = await groupRef.collection('members').doc(uid).get();
   if (!memberSnap.exists || memberSnap.data()?.role !== 'admin') throw new HttpsError('permission-denied', 'Only group admins can view invites.');
   const invites = await db.collection('groupInvites').where('groupId', '==', groupId).limit(20).get();
-  return { invites: invites.docs.map(d => ({ id: d.id, status: d.data().status, uses: d.data().uses ?? 0, maxUses: d.data().maxUses ?? 0, expiresAt: d.data().expiresAt?.toDate?.()?.toISOString?.() ?? null })) };
+  const ordered = [...invites.docs].sort((a, b) => (b.data().createdAt?.toMillis?.() ?? 0) - (a.data().createdAt?.toMillis?.() ?? 0));
+  return { invites: ordered.map(d => ({ id: d.id, status: d.data().status, uses: d.data().uses ?? 0, maxUses: d.data().maxUses ?? 0, expiresAt: d.data().expiresAt?.toDate?.()?.toISOString?.() ?? null })) };
 });
 
 const razorpayKeyId = defineSecret('RAZORPAY_KEY_ID');
@@ -347,8 +348,8 @@ export const createRazorpayOrder = onCall({ secrets: [razorpayKeyId, razorpayKey
   const amountPaise = validAmount(request.data?.amountPaise);
   if (amountPaise < 100 || amountPaise > 5000000) throw new HttpsError('invalid-argument', 'Contribution must be between ₹1 and ₹50,000.');
   const groupRef = db.collection('groups').doc(groupId);
-  const memberSnap = await groupRef.collection('members').doc(uid).get();
-  if (!groupId || !memberSnap.exists) throw new HttpsError('permission-denied', 'You must be a group member to contribute.');
+  const [groupSnap, memberSnap] = await Promise.all([groupRef.get(), groupRef.collection('members').doc(uid).get()]);
+  if (!groupId || !groupSnap.exists || groupSnap.data()?.status !== 'active' || !memberSnap.exists) throw new HttpsError('permission-denied', 'You must be an active member of this group to contribute.');
   const auth = razorpayAuthorization();
   const response = await fetch('https://api.razorpay.com/v1/orders', {
     method: 'POST',
