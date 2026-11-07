@@ -168,7 +168,10 @@ export const getSettlementSuggestions = onCall(async request => {
   const groupRef = db.collection('groups').doc(groupId);
   const memberSnap = await groupRef.collection('members').doc(uid).get();
   if (!memberSnap.exists) throw new HttpsError('permission-denied', 'You are not a member of this group.');
-  const expenseSnap = await groupRef.collection('expenses').where('status', '==', 'recorded').get();
+  const [expenseSnap, settlementSnap] = await Promise.all([
+    groupRef.collection('expenses').where('status', '==', 'recorded').get(),
+    groupRef.collection('settlementReports').where('status', '==', 'confirmed_by_parties').get()
+  ]);
   const transfers = calculateSettlementTransfers(expenseSnap.docs.map(doc => {
     const expense = doc.data();
     return {
@@ -176,6 +179,9 @@ export const getSettlementSuggestions = onCall(async request => {
       paidBy: String(expense.paidBy ?? ''),
       shares: (expense.shares ?? []) as Array<{ uid: string; amountPaise: number }>
     };
+  }), settlementSnap.docs.map(doc => {
+    const report = doc.data();
+    return { fromUid: String(report.fromUid), toUid: String(report.toUid), amountPaise: Number(report.amountPaise) };
   }));
   return {transfers, computedAt:new Date().toISOString(), note:'Suggestions only. No payment has been initiated or verified.'};
 });
@@ -492,4 +498,58 @@ export const setVaultLowBalanceThreshold = onCall(async request => {
     tx.set(groupRef.collection('vault').doc('summary'), { lowBalanceThresholdPaise: thresholdPaise, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
   });
   return { thresholdPaise };
+});
+
+export const confirmSettlementReport = onCall(async request => {
+  const uid = requireUid(request.auth?.uid);
+  const groupId = String(request.data?.groupId ?? '');
+  const reportId = String(request.data?.reportId ?? '');
+  if (!groupId || !reportId) throw new HttpsError('invalid-argument', 'Group and settlement report are required.');
+  const groupRef = db.collection('groups').doc(groupId);
+  const reportRef = groupRef.collection('settlementReports').doc(reportId);
+  await db.runTransaction(async tx => {
+    const reportSnap = await tx.get(reportRef);
+    if (!reportSnap.exists) throw new HttpsError('not-found', 'Settlement report not found.');
+    const report = reportSnap.data()!;
+    if (report.status !== 'reported_unverified') throw new HttpsError('failed-precondition', 'This settlement report is no longer awaiting confirmation.');
+    if (uid !== report.fromUid && uid !== report.toUid) throw new HttpsError('permission-denied', 'Only the sender or recipient can confirm this report.');
+    if (uid === report.reportedBy) throw new HttpsError('permission-denied', 'The person who reported the transfer cannot confirm it themselves.');
+    const [groupSnap, senderSnap, recipientSnap, expenseSnap, confirmedSnap] = await Promise.all([
+      tx.get(groupRef),
+      tx.get(groupRef.collection('members').doc(String(report.fromUid))),
+      tx.get(groupRef.collection('members').doc(String(report.toUid))),
+      tx.get(groupRef.collection('expenses').where('status', '==', 'recorded')),
+      tx.get(groupRef.collection('settlementReports').where('status', '==', 'confirmed_by_parties'))
+    ]);
+    if (!groupSnap.exists || !senderSnap.exists || !recipientSnap.exists) throw new HttpsError('failed-precondition', 'Both participants must remain active group members.');
+    const expenses = expenseSnap.docs.map(doc => {
+      const expense = doc.data();
+      return { amountPaise: Number(expense.amountPaise), paidBy: String(expense.paidBy ?? ''), shares: (expense.shares ?? []) as Array<{uid:string;amountPaise:number}> };
+    });
+    const settled = confirmedSnap.docs.map(doc => {
+      const item = doc.data();
+      return { fromUid: String(item.fromUid), toUid: String(item.toUid), amountPaise: Number(item.amountPaise) };
+    });
+    const remaining = calculateSettlementTransfers(expenses, settled);
+    const matching = remaining.find(item => item.fromUid === report.fromUid && item.toUid === report.toUid);
+    if (!matching || Number(report.amountPaise) > matching.amountPaise) throw new HttpsError('failed-precondition', 'This report no longer matches an outstanding suggested settlement.');
+    tx.update(reportRef, { status: 'confirmed_by_parties', confirmedBy: uid, confirmedAt: FieldValue.serverTimestamp(), verification: 'party_confirmed_not_provider_verified' });
+    tx.create(groupRef.collection('ledger').doc(), { type: 'settlement_confirmed_by_parties', description: 'Settlement acknowledged by both participants; not provider verified', amountPaise: Number(report.amountPaise), actorUid: uid, referenceId: reportId, verification: 'party_confirmed_not_provider_verified', createdAt: FieldValue.serverTimestamp() });
+  });
+  return { confirmed: true, verification: 'party_confirmed_not_provider_verified' };
+});
+
+export const listSettlementReports = onCall(async request => {
+  const uid = requireUid(request.auth?.uid);
+  const groupId = String(request.data?.groupId ?? '');
+  if (!groupId) throw new HttpsError('invalid-argument', 'Group is required.');
+  const groupRef = db.collection('groups').doc(groupId);
+  const memberSnap = await groupRef.collection('members').doc(uid).get();
+  if (!memberSnap.exists) throw new HttpsError('permission-denied', 'You are not a group member.');
+  const snap = await groupRef.collection('settlementReports').limit(30).get();
+  const reports = snap.docs.map(doc => {
+    const report = doc.data();
+    return { id: doc.id, fromUid: String(report.fromUid), toUid: String(report.toUid), amountPaise: Number(report.amountPaise), status: String(report.status), reportedBy: String(report.reportedBy), reference: String(report.reference ?? ''), createdAt: report.createdAt?.toDate?.()?.toISOString?.() ?? null };
+  }).sort((a,b)=>(b.createdAt??'').localeCompare(a.createdAt??''));
+  return { reports };
 });
