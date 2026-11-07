@@ -1,0 +1,49 @@
+export type ExpenseShare = { uid: string; amountPaise: number };
+export type SettlementTransfer = { fromUid: string; toUid: string; amountPaise: number };
+
+export function splitEqually(amountPaise: number, memberUids: string[]): ExpenseShare[] {
+  if (!Number.isSafeInteger(amountPaise) || amountPaise <= 0 || memberUids.length === 0) throw new Error('Invalid equal split input.');
+  const each = Math.floor(amountPaise / memberUids.length);
+  const remainder = amountPaise % memberUids.length;
+  return memberUids.map((uid, index) => ({ uid, amountPaise: each + (index < remainder ? 1 : 0) }));
+}
+
+export function validateCustomSplit(amountPaise: number, memberUids: string[], supplied: unknown): ExpenseShare[] {
+  if (!Array.isArray(supplied) || supplied.length !== memberUids.length) throw new Error('Enter a share amount for every active member.');
+  const seen = new Set<string>();
+  const shares = supplied.map((item: any) => {
+    const uid = String(item?.uid ?? '');
+    const amount = Number(item?.amountPaise);
+    if (!memberUids.includes(uid) || seen.has(uid) || !Number.isSafeInteger(amount) || amount < 0) throw new Error('Custom shares contain an invalid member or amount.');
+    seen.add(uid);
+    return { uid, amountPaise: amount };
+  });
+  if (seen.size !== memberUids.length || shares.reduce((sum, share) => sum + share.amountPaise, 0) !== amountPaise) throw new Error('Custom shares must add up exactly to the expense total.');
+  return shares;
+}
+
+export function calculateSettlementTransfers(expenses: Array<{ amountPaise: number; paidBy: string; shares: ExpenseShare[] }>): SettlementTransfer[] {
+  const net = new Map<string, number>();
+  for (const expense of expenses) {
+    const amount = Number(expense.amountPaise);
+    if (!Number.isSafeInteger(amount) || amount <= 0 || !expense.paidBy) continue;
+    net.set(expense.paidBy, (net.get(expense.paidBy) ?? 0) + amount);
+    for (const share of expense.shares ?? []) {
+      if (typeof share.uid !== 'string' || !Number.isSafeInteger(share.amountPaise) || share.amountPaise < 0) continue;
+      net.set(share.uid, (net.get(share.uid) ?? 0) - share.amountPaise);
+    }
+  }
+  const creditors = [...net.entries()].filter(([, value]) => value > 0).map(([uid, amount]) => ({ uid, amount })).sort((a, b) => b.amount - a.amount);
+  const debtors = [...net.entries()].filter(([, value]) => value < 0).map(([uid, amount]) => ({ uid, amount: -amount })).sort((a, b) => b.amount - a.amount);
+  const transfers: SettlementTransfer[] = [];
+  let i = 0, j = 0;
+  while (i < debtors.length && j < creditors.length) {
+    const amount = Math.min(debtors[i].amount, creditors[j].amount);
+    if (amount > 0) transfers.push({ fromUid: debtors[i].uid, toUid: creditors[j].uid, amountPaise: amount });
+    debtors[i].amount -= amount;
+    creditors[j].amount -= amount;
+    if (debtors[i].amount === 0) i++;
+    if (creditors[j].amount === 0) j++;
+  }
+  return transfers;
+}
