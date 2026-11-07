@@ -163,3 +163,26 @@ export const getGroupMembers = onCall(async request => {
   }));
   return { members };
 });
+
+export const getGroupLedger = onCall(async request => {
+  const uid = requireUid(request.auth?.uid);
+  const groupId = String(request.data?.groupId ?? '');
+  if (!groupId) throw new HttpsError('invalid-argument', 'Group is required.');
+  const groupRef = db.collection('groups').doc(groupId);
+  const memberSnap = await groupRef.collection('members').doc(uid).get();
+  if (!memberSnap.exists) throw new HttpsError('permission-denied', 'You are not a member of this group.');
+  const ledgerSnap = await groupRef.collection('ledger').orderBy('createdAt', 'desc').limit(25).get();
+  return {
+    entries: ledgerSnap.docs.map(entryDoc => {
+      const entry = entryDoc.data();
+      return {
+        id: entryDoc.id,
+        type: String(entry.type ?? 'activity'),
+        description: String(entry.description ?? entry.type ?? 'Group activity').slice(0, 120),
+        amountPaise: Number(entry.amountPaise ?? 0),
+        verification: String(entry.verification ?? ''),
+        createdAt: entry.createdAt?.toDate?.()?.toISOString?.() ?? null
+      };
+    })
+  };
+});
