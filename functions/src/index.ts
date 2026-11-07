@@ -553,3 +553,24 @@ export const listSettlementReports = onCall(async request => {
   }).sort((a,b)=>(b.createdAt??'').localeCompare(a.createdAt??''));
   return { reports };
 });
+
+export const voidExpense = onCall(async request => {
+  const uid = requireUid(request.auth?.uid);
+  const groupId = String(request.data?.groupId ?? '');
+  const expenseId = String(request.data?.expenseId ?? '');
+  const reason = String(request.data?.reason ?? '').trim().slice(0, 160);
+  if (!groupId || !expenseId || reason.length < 3) throw new HttpsError('invalid-argument', 'Provide an expense and a correction reason of at least 3 characters.');
+  const groupRef = db.collection('groups').doc(groupId);
+  const expenseRef = groupRef.collection('expenses').doc(expenseId);
+  await db.runTransaction(async tx => {
+    const [groupSnap, memberSnap, expenseSnap] = await Promise.all([tx.get(groupRef), tx.get(groupRef.collection('members').doc(uid)), tx.get(expenseRef)]);
+    if (!groupSnap.exists || !memberSnap.exists || !expenseSnap.exists) throw new HttpsError('not-found', 'Group member or expense not found.');
+    const expense = expenseSnap.data()!;
+    if (expense.status !== 'recorded') throw new HttpsError('failed-precondition', 'Only a recorded expense can be voided.');
+    if (memberSnap.data()?.role !== 'admin' && expense.createdBy !== uid) throw new HttpsError('permission-denied', 'Only the expense creator or a group admin can void this entry.');
+    tx.update(expenseRef, { status: 'voided', voidedBy: uid, voidReason: reason, voidedAt: FieldValue.serverTimestamp() });
+    tx.create(groupRef.collection('ledger').doc(), { type: 'expense_voided', description: 'Expense voided: ' + reason, amountPaise: Number(expense.amountPaise), actorUid: uid, referenceId: expenseId, createdAt: FieldValue.serverTimestamp(), verification: 'correction_entry' });
+  });
+  await notifyGroupMembers(groupId, 'Group expense corrected', 'An expense was voided with a correction entry.', uid);
+  return { voided: true };
+});
