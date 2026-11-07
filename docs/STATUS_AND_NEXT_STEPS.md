@@ -11,7 +11,11 @@
 - Dashboard invite-link creation and invite acceptance through the `?invite=` URL parameter.
 - Admin-only manual cash contribution ledger entry, explicitly marked `manual_unverified`.
 - Settlement suggestion calculation from recorded expenses; suggestions do not initiate or confirm payments.
-- Dashboard controls for invites, manual cash entries and settlement suggestions.\n- Secure callable group-member directory with profile names, email addresses and admin/member roles.\n- Basic user profile document created during registration.\n- Member-only group ledger endpoint and dashboard ledger history for expenses and manual contributions; ledger refreshes after new entries.\n- Invite-link display survives clipboard permission failures.
+- Dashboard controls for invites, manual cash entries and settlement suggestions.
+- Secure callable group-member directory with profile names, email addresses and admin/member roles.
+- Basic user profile document created during registration.
+- Member-only group ledger endpoint and dashboard ledger history for expenses and manual contributions; ledger refreshes after new entries.
+- Invite-link display survives clipboard permission failures.
 - Deny-by-default Firestore rules and member-scoped receipt storage rules.
 - Firebase Hosting SPA configuration.
 
