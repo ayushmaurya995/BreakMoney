@@ -5,3 +5,11 @@
 .invite-preview span{font-size:11px;overflow-wrap:anywhere;color:#315d25}
 .invite-preview button{flex-shrink:0}
 @media(max-width:640px){.group-actions{display:grid;grid-template-columns:1fr}.invite-preview{align-items:flex-start;flex-direction:column}}
+
+.settlement-panel{margin-top:14px;background:#fff;border:1px solid #e5e9e1;border-radius:16px;padding:18px}
+.settlement-panel>div:first-child{display:grid;gap:5px;margin-bottom:12px}
+.settlement-panel>div:first-child b{font-size:13px}
+.settlement-panel small{font-size:10px;color:#89948d}
+.settlement-panel>p{font-size:12px}
+.settlement-row{display:flex;justify-content:space-between;align-items:center;border-top:1px solid #eff1ed;padding:12px 0;font-size:12px}
+.settlement-row b{font-size:13px;color:#315d25}
