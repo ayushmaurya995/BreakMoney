@@ -105,4 +105,38 @@ export const recordManualContribution = onCall(async request => {
   });
   return { ledgerEntryId: ledgerRef.id, verification: 'manual_unverified' };
 });
+export const getSettlementSuggestions = onCall(async request => {
+  const uid = requireUid(request.auth?.uid);
+  const groupId = String(request.data?.groupId ?? '');
+  if (!groupId) throw new HttpsError('invalid-argument', 'Group is required.');
+  const groupRef = db.collection('groups').doc(groupId);
+  const memberSnap = await groupRef.collection('members').doc(uid).get();
+  if (!memberSnap.exists) throw new HttpsError('permission-denied', 'You are not a member of this group.');
+  const expenseSnap = await groupRef.collection('expenses').where('status', '==', 'recorded').get();
+  const net = new Map<string, number>();
+  for (const expenseDoc of expenseSnap.docs) {
+    const expense = expenseDoc.data();
+    const amount = Number(expense.amountPaise);
+    if (!Number.isSafeInteger(amount) || amount <= 0) continue;
+    const payer = String(expense.paidBy ?? '');
+    if (!payer) continue;
+    net.set(payer, (net.get(payer) ?? 0) + amount);
+    for (const share of (expense.shares ?? []) as Array<{uid:string;amountPaise:number}>) {
+      if (typeof share.uid !== 'string' || !Number.isSafeInteger(share.amountPaise)) continue;
+      net.set(share.uid, (net.get(share.uid) ?? 0) - share.amountPaise);
+    }
+  }
+  const creditors = [...net.entries()].filter(([,value]) => value > 0).map(([memberUid,value])=>({uid:memberUid,amount:value})).sort((a,b)=>b.amount-a.amount);
+  const debtors = [...net.entries()].filter(([,value]) => value < 0).map(([memberUid,value])=>({uid:memberUid,amount:-value})).sort((a,b)=>b.amount-a.amount);
+  const transfers: Array<{fromUid:string;toUid:string;amountPaise:number}> = [];
+  let i=0,j=0;
+  while(i<debtors.length && j<creditors.length){
+    const amount=Math.min(debtors[i].amount,creditors[j].amount);
+    if(amount>0)transfers.push({fromUid:debtors[i].uid,toUid:creditors[j].uid,amountPaise:amount});
+    debtors[i].amount-=amount;creditors[j].amount-=amount;
+    if(debtors[i].amount===0)i++;
+    if(creditors[j].amount===0)j++;
+  }
+  return {transfers, computedAt:new Date().toISOString(), note:'Suggestions only. No payment has been initiated or verified.'};
+});
 export const health = onCall(async request => { requireUid(request.auth?.uid); return { ok: true, region: 'asia-south1' }; });
