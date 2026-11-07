@@ -60,3 +60,20 @@ test('settlement suggestions return no transfers when all shares are settled', (
     shares: [{ uid: 'a', amountPaise: 200 }]
   }]), []);
 });
+
+test('mutually confirmed settlements reduce outstanding balances', () => {
+  const expenses = [{
+    amountPaise: 300,
+    paidBy: 'a',
+    shares: [
+      { uid: 'a', amountPaise: 100 },
+      { uid: 'b', amountPaise: 100 },
+      { uid: 'c', amountPaise: 100 }
+    ]
+  }];
+  assert.deepEqual(calculateSettlementTransfers(expenses, [
+    { fromUid: 'b', toUid: 'a', amountPaise: 100 }
+  ]), [
+    { fromUid: 'c', toUid: 'a', amountPaise: 100 }
+  ]);
+});
