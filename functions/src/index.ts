@@ -1,7 +1,8 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
-import { onCall, onRequest, HttpsError } from 'firebase-functions/v2/https';\nimport { defineSecret } from 'firebase-functions/params';
+import { onCall, onRequest, HttpsError } from 'firebase-functions/v2/https';
+import { defineSecret } from 'firebase-functions/params';
 import { setGlobalOptions } from 'firebase-functions/v2';
 initializeApp();
 setGlobalOptions({ region: 'asia-south1', maxInstances: 10 });
