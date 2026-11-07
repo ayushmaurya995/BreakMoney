@@ -401,3 +401,25 @@ export const razorpayWebhook = onRequest({ secrets: [razorpayWebhookSecret] }, a
     response.status(500).send(error instanceof Error ? error.message : 'Could not record payment');
   }
 });
+
+export const reportSettlement = onCall(async request => {
+  const uid = requireUid(request.auth?.uid);
+  const groupId = String(request.data?.groupId ?? '');
+  const fromUid = String(request.data?.fromUid ?? '');
+  const toUid = String(request.data?.toUid ?? '');
+  const amountPaise = validAmount(request.data?.amountPaise);
+  const reference = String(request.data?.reference ?? '').trim().slice(0, 80);
+  if (!groupId || !fromUid || !toUid || fromUid === toUid || (uid !== fromUid && uid !== toUid)) throw new HttpsError('invalid-argument', 'Only a sender or recipient can report this suggested settlement.');
+  const groupRef = db.collection('groups').doc(groupId);
+  const reportRef = groupRef.collection('settlementReports').doc();
+  const ledgerRef = groupRef.collection('ledger').doc();
+  await db.runTransaction(async tx => {
+    const [groupSnap, senderSnap, recipientSnap] = await Promise.all([
+      tx.get(groupRef), tx.get(groupRef.collection('members').doc(fromUid)), tx.get(groupRef.collection('members').doc(toUid))
+    ]);
+    if (!groupSnap.exists || !senderSnap.exists || !recipientSnap.exists) throw new HttpsError('failed-precondition', 'Both people must still be active group members.');
+    tx.create(reportRef, { fromUid, toUid, amountPaise, reference, reportedBy: uid, status: 'reported_unverified', createdAt: FieldValue.serverTimestamp() });
+    tx.create(ledgerRef, { type: 'settlement_reported_unverified', description: 'Settlement reported by a participant; awaiting independent verification', amountPaise, actorUid: uid, referenceId: reportRef.id, verification: 'unverified', createdAt: FieldValue.serverTimestamp() });
+  });
+  return { reportId: reportRef.id, status: 'reported_unverified', note: 'A report is not proof of payment and does not change settlement balances.' };
+});
