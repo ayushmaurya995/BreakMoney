@@ -22,7 +22,7 @@ export function validateCustomSplit(amountPaise: number, memberUids: string[], s
   return shares;
 }
 
-export function calculateSettlementTransfers(expenses: Array<{ amountPaise: number; paidBy: string; shares: ExpenseShare[] }>): SettlementTransfer[] {
+export function calculateSettlementTransfers(expenses: Array<{ amountPaise: number; paidBy: string; shares: ExpenseShare[] }>, settlements: SettlementTransfer[] = []): SettlementTransfer[] {
   const net = new Map<string, number>();
   for (const expense of expenses) {
     const amount = Number(expense.amountPaise);
@@ -32,6 +32,11 @@ export function calculateSettlementTransfers(expenses: Array<{ amountPaise: numb
       if (typeof share.uid !== 'string' || !Number.isSafeInteger(share.amountPaise) || share.amountPaise < 0) continue;
       net.set(share.uid, (net.get(share.uid) ?? 0) - share.amountPaise);
     }
+  }
+  for (const settlement of settlements) {
+    if (!Number.isSafeInteger(settlement.amountPaise) || settlement.amountPaise <= 0 || !settlement.fromUid || !settlement.toUid) continue;
+    net.set(settlement.fromUid, (net.get(settlement.fromUid) ?? 0) + settlement.amountPaise);
+    net.set(settlement.toUid, (net.get(settlement.toUid) ?? 0) - settlement.amountPaise);
   }
   const creditors = [...net.entries()].filter(([, value]) => value > 0).map(([uid, amount]) => ({ uid, amount })).sort((a, b) => b.amount - a.amount);
   const debtors = [...net.entries()].filter(([, value]) => value < 0).map(([uid, amount]) => ({ uid, amount: -amount })).sort((a, b) => b.amount - a.amount);
