@@ -1,6 +1,7 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
+import { getMessaging } from 'firebase-admin/messaging';
 import { onCall, onRequest, HttpsError } from 'firebase-functions/v2/https';
 import { defineSecret } from 'firebase-functions/params';
 import { setGlobalOptions } from 'firebase-functions/v2';
@@ -9,6 +10,50 @@ setGlobalOptions({ region: 'asia-south1', maxInstances: 10 });
 const db = getFirestore();
 const requireUid = (uid?: string) => { if (!uid) throw new HttpsError('unauthenticated', 'Please sign in first.'); return uid; };
 const tokenHash = (token: string) => createHash('sha256').update(token).digest('hex');
+
+async function notifyGroupMembers(groupId: string, title: string, body: string, excludeUid?: string) {
+  try {
+    const members = await db.collection('groups').doc(groupId).collection('members').where('status', '==', 'active').get();
+    const tokenRows: Array<{ token: string; ref: FirebaseFirestore.DocumentReference }> = [];
+    for (const member of members.docs) {
+      if (member.id === excludeUid) continue;
+      const tokens = await db.collection('users').doc(member.id).collection('deviceTokens').get();
+      for (const tokenDoc of tokens.docs) {
+        const token = String(tokenDoc.data().token ?? '');
+        if (token) tokenRows.push({ token, ref: tokenDoc.ref });
+      }
+    }
+    for (let offset = 0; offset < tokenRows.length; offset += 500) {
+      const batch = tokenRows.slice(offset, offset + 500);
+      const result = await getMessaging().sendEachForMulticast({
+        tokens: batch.map(row => row.token),
+        notification: { title, body },
+        data: { groupId }
+      });
+      await Promise.all(result.responses.map((item, index) => {
+        const code = item.error?.code ?? '';
+        return ['messaging/registration-token-not-registered', 'messaging/invalid-registration-token'].includes(code)
+          ? batch[index].ref.delete()
+          : Promise.resolve();
+      }));
+    }
+  } catch (error) {
+    console.error('Group notification delivery failed:', error);
+  }
+}
+
+export const registerDeviceToken = onCall(async request => {
+  const uid = requireUid(request.auth?.uid);
+  if (request.auth?.token.email_verified !== true) throw new HttpsError('permission-denied', 'Verify your email before enabling notifications.');
+  const token = String(request.data?.token ?? '');
+  if (token.length < 50 || token.length > 4096) throw new HttpsError('invalid-argument', 'Invalid notification device token.');
+  const id = tokenHash(token);
+  await db.collection('users').doc(uid).collection('deviceTokens').doc(id).set({
+    token, platform: 'web', updatedAt: FieldValue.serverTimestamp()
+  }, { merge: true });
+  return { registered: true };
+});
+
 const validAmount = (amount: unknown): number => {
   const value = Number(amount);
   if (!Number.isSafeInteger(value) || value <= 0 || value > 100000000000) throw new HttpsError('invalid-argument', 'Enter a valid positive amount in paise.');
@@ -60,6 +105,7 @@ export const recordExpense = onCall(async request => {
     tx.create(expenseRef, { description, amountPaise, currency: 'INR', category: 'General', paidBy: uid, splitType, shares, createdBy: uid, createdAt: FieldValue.serverTimestamp(), status: 'recorded' });
     tx.create(groupRef.collection('ledger').doc(), { type: 'expense_recorded', referenceId: expenseRef.id, amountPaise, actorUid: uid, description, createdAt: FieldValue.serverTimestamp(), status: 'recorded' });
   });
+  await notifyGroupMembers(groupId, 'New group expense', description, uid);
   return { expenseId: expenseRef.id };
 });
 export const createInvite = onCall(async request => {
@@ -120,6 +166,7 @@ export const recordManualContribution = onCall(async request => {
     tx.set(vaultRef, { balancePaise: current + amountPaise, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
     tx.create(ledgerRef, { type: 'manual_cash_contribution', amountPaise, description, actorUid: uid, verification: 'manual_unverified', createdAt: FieldValue.serverTimestamp() });
   });
+  await notifyGroupMembers(groupId, 'Vault cash entry recorded', description, uid);
   return { ledgerEntryId: ledgerRef.id, verification: 'manual_unverified' };
 });
 export const getSettlementSuggestions = onCall(async request => {
@@ -339,6 +386,7 @@ async function finalizeCapturedPayment(orderId: string, paymentId: string, amoun
     tx.update(orderRef, { status: 'captured', paymentId, capturedAt: FieldValue.serverTimestamp() });
     tx.create(ledgerRef, { type: 'verified_digital_contribution', description: 'Verified Razorpay contribution', amountPaise: amount, actorUid: order.uid, paymentProvider: 'razorpay', paymentOrderId: orderId, paymentId, verification: 'provider_captured', createdAt: FieldValue.serverTimestamp() });
   });
+  await notifyGroupMembers(String((await orderRef.get()).data()?.groupId ?? ''), 'Vault contribution received', 'A verified contribution was added to your group vault.', String((await orderRef.get()).data()?.uid ?? ''));
 }
 
 export const createRazorpayOrder = onCall({ secrets: [razorpayKeyId, razorpayKeySecret] }, async request => {
