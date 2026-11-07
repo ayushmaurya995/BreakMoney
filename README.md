@@ -14,6 +14,7 @@ BreakMoney is a shared-expense management web application for friends, roommates
 - Live vault summary and expense activity.
 - Group ledger history, manual cash entries clearly marked unverified.
 - Settlement suggestions and unverified settlement reports.
+- Admin vault spending, configurable low-balance threshold and FCM notifications for group activity.
 - Razorpay order creation, server-side signature verification, payment status confirmation and idempotent payment.captured webhook processing.
 - Firestore and Storage security rules.
 - GitHub Actions build/type-check workflow for web and Cloud Functions.
@@ -50,12 +51,13 @@ firebase functions:secrets:set RAZORPAY_KEY_SECRET
 firebase functions:secrets:set RAZORPAY_WEBHOOK_SECRET
 ```
 
-4. Enable automatic payment capture in the Razorpay dashboard. BreakMoney credits the group ledger only after Razorpay reports a captured payment.
-5. Deploy Cloud Functions. Configure a Razorpay webhook for the payment.captured event at:
+4. In Firebase Console, enable Cloud Messaging for the web app and add its Web Push certificate public key as VITE_FIREBASE_VAPID_KEY in .env.local.
+5. Enable automatic payment capture in the Razorpay dashboard. BreakMoney credits the group ledger only after Razorpay reports a captured payment.
+6. Deploy Cloud Functions. Configure a Razorpay webhook for the payment.captured event at:
 
 https://asia-south1-break-a01f4.cloudfunctions.net/razorpayWebhook
 
-6. Use Razorpay test mode and verify success, failure, duplicate webhook delivery and mismatched amount scenarios before live mode.
+7. Use Razorpay test mode and verify success, failure, duplicate webhook delivery and mismatched amount scenarios before live mode.
 
 Never place payment secrets in .env.local, browser code, GitHub or a public repository. The Razorpay key ID is returned to the checkout client; the key secret and webhook secret remain in Firebase Secret Manager.
 
@@ -92,5 +94,5 @@ Cloud Functions deployment requires an eligible billing plan. Hosting and rules 
 - Razorpay cannot process a real payment until the owner configures Firebase secrets, enables capture, registers the webhook and completes provider test-mode checks.
 - A settlement report is a participant statement, not proof of transfer and does not change calculated balances.
 - Numeric email OTP is not implemented; Firebase email verification uses a link. Phone OTP is a separate Firebase Auth flow.
-- FCM push notifications, analytics, full expense edit/delete policy, Firebase App Check, emulator/security tests and the Expo Android client remain outstanding.
+- Analytics, full expense edit/delete policy, Firebase App Check, emulator/security tests and the Expo Android client remain outstanding.
 - Build status must be confirmed by the GitHub Actions workflow before release.
