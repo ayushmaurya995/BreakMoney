@@ -39,9 +39,25 @@ export const recordExpense = onCall(async request => {
     const groupSnap = await tx.get(groupRef);
     if (!groupSnap.exists || !(groupSnap.data()?.memberUids ?? []).includes(uid)) throw new HttpsError('permission-denied', 'You are not a member of this group.');
     const members: string[] = groupSnap.data()?.memberUids ?? [uid];
-    const each = Math.floor(amountPaise / members.length), remainder = amountPaise % members.length;
-    const shares = members.map((memberUid, index) => ({ uid: memberUid, amountPaise: each + (index < remainder ? 1 : 0) }));
-    tx.create(expenseRef, { description, amountPaise, currency: 'INR', category: 'General', paidBy: uid, splitType: 'equal', shares, createdBy: uid, createdAt: FieldValue.serverTimestamp(), status: 'recorded' });
+    const splitType = request.data?.splitType === 'custom' ? 'custom' : 'equal';
+    let shares: Array<{ uid: string; amountPaise: number }>;
+    if (splitType === 'custom') {
+      const supplied = request.data?.shares;
+      if (!Array.isArray(supplied) || supplied.length !== members.length) throw new HttpsError('invalid-argument', 'Enter a share amount for every active member.');
+      const seen = new Set<string>();
+      shares = supplied.map((item: { uid?: unknown; amountPaise?: unknown }) => {
+        const shareUid = String(item?.uid ?? '');
+        const shareAmount = Number(item?.amountPaise);
+        if (!members.includes(shareUid) || seen.has(shareUid) || !Number.isSafeInteger(shareAmount) || shareAmount < 0) throw new HttpsError('invalid-argument', 'Custom shares contain an invalid member or amount.');
+        seen.add(shareUid);
+        return { uid: shareUid, amountPaise: shareAmount };
+      });
+      if (seen.size !== members.length || shares.reduce((sum, share) => sum + share.amountPaise, 0) !== amountPaise) throw new HttpsError('invalid-argument', 'Custom shares must add up exactly to the expense total.');
+    } else {
+      const each = Math.floor(amountPaise / members.length), remainder = amountPaise % members.length;
+      shares = members.map((memberUid, index) => ({ uid: memberUid, amountPaise: each + (index < remainder ? 1 : 0) }));
+    }
+    tx.create(expenseRef, { description, amountPaise, currency: 'INR', category: 'General', paidBy: uid, splitType, shares, createdBy: uid, createdAt: FieldValue.serverTimestamp(), status: 'recorded' });
     tx.create(groupRef.collection('ledger').doc(), { type: 'expense_recorded', referenceId: expenseRef.id, amountPaise, actorUid: uid, description, createdAt: FieldValue.serverTimestamp(), status: 'recorded' });
   });
   return { expenseId: expenseRef.id };
@@ -284,7 +300,7 @@ export const listGroupInvites = onCall(async request => {
   const groupRef = db.collection('groups').doc(groupId);
   const memberSnap = await groupRef.collection('members').doc(uid).get();
   if (!memberSnap.exists || memberSnap.data()?.role !== 'admin') throw new HttpsError('permission-denied', 'Only group admins can view invites.');
-  const invites = await db.collection('groupInvites').where('groupId', '==', groupId).orderBy('createdAt', 'desc').limit(20).get();
+  const invites = await db.collection('groupInvites').where('groupId', '==', groupId).limit(20).get();
   return { invites: invites.docs.map(d => ({ id: d.id, status: d.data().status, uses: d.data().uses ?? 0, maxUses: d.data().maxUses ?? 0, expiresAt: d.data().expiresAt?.toDate?.()?.toISOString?.() ?? null })) };
 });
 
@@ -314,7 +330,8 @@ async function finalizeCapturedPayment(orderId: string, paymentId: string, amoun
     const groupRef = db.collection('groups').doc(String(order.groupId));
     const vaultRef = groupRef.collection('vault').doc('summary');
     const ledgerRef = groupRef.collection('ledger').doc();
-    const vaultSnap = await tx.get(vaultRef);
+    const [groupSnap, vaultSnap] = await Promise.all([tx.get(groupRef), tx.get(vaultRef)]);
+    if (!groupSnap.exists || groupSnap.data()?.status !== 'active') throw new HttpsError('failed-precondition', 'This group is no longer active.');
     const current = Number(vaultSnap.data()?.balancePaise ?? 0);
     if (!Number.isSafeInteger(current + amount)) throw new HttpsError('out-of-range', 'Vault balance is outside the supported range.');
     tx.set(vaultRef, { balancePaise: current + amount, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
@@ -336,7 +353,7 @@ export const createRazorpayOrder = onCall({ secrets: [razorpayKeyId, razorpayKey
   const response = await fetch('https://api.razorpay.com/v1/orders', {
     method: 'POST',
     headers: { Authorization: auth.header, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ amount: amountPaise, currency: 'INR', receipt: randomBytes(12).toString('hex'), payment_capture: 1, notes: { groupId, uid } })
+    body: JSON.stringify({ amount: amountPaise, currency: 'INR', receipt: randomBytes(12).toString('hex'), notes: { groupId, uid } })
   });
   const data = await response.json() as { id?: string; amount?: number; currency?: string; error?: { description?: string } };
   if (!response.ok || !data.id || data.amount !== amountPaise || data.currency !== 'INR') throw new HttpsError('internal', data.error?.description ?? 'Razorpay could not create the payment order.');
