@@ -365,14 +365,14 @@ function razorpayAuthorization() {
 
 async function finalizeCapturedPayment(orderId: string, paymentId: string, amount: number, currency: string) {
   const orderRef = db.collection('razorpayOrders').doc(orderId);
-  await db.runTransaction(async tx => {
+  const newlyCaptured = await db.runTransaction(async tx => {
     const orderSnap = await tx.get(orderRef);
     if (!orderSnap.exists) throw new HttpsError('not-found', 'Payment order was not found.');
     const order = orderSnap.data()!;
     if (Number(order.amountPaise) !== amount || order.currency !== currency || currency !== 'INR') throw new HttpsError('failed-precondition', 'Payment amount or currency does not match the order.');
     if (order.status === 'captured') {
       if (order.paymentId !== paymentId) throw new HttpsError('already-exists', 'This order was already completed with another payment.');
-      return;
+      return false;
     }
     if (order.status !== 'created') throw new HttpsError('failed-precondition', 'This payment order is no longer payable.');
     const groupRef = db.collection('groups').doc(String(order.groupId));
@@ -385,8 +385,12 @@ async function finalizeCapturedPayment(orderId: string, paymentId: string, amoun
     tx.set(vaultRef, { balancePaise: current + amount, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
     tx.update(orderRef, { status: 'captured', paymentId, capturedAt: FieldValue.serverTimestamp() });
     tx.create(ledgerRef, { type: 'verified_digital_contribution', description: 'Verified Razorpay contribution', amountPaise: amount, actorUid: order.uid, paymentProvider: 'razorpay', paymentOrderId: orderId, paymentId, verification: 'provider_captured', createdAt: FieldValue.serverTimestamp() });
+    return true;
   });
-  await notifyGroupMembers(String((await orderRef.get()).data()?.groupId ?? ''), 'Vault contribution received', 'A verified contribution was added to your group vault.', String((await orderRef.get()).data()?.uid ?? ''));
+  if (newlyCaptured) {
+    const savedOrder = (await orderRef.get()).data();
+    await notifyGroupMembers(String(savedOrder?.groupId ?? ''), 'Vault contribution received', 'A verified contribution was added to your group vault.', String(savedOrder?.uid ?? ''));
+  }
 }
 
 export const createRazorpayOrder = onCall({ secrets: [razorpayKeyId, razorpayKeySecret] }, async request => {
