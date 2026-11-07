@@ -10,10 +10,12 @@
 - Invite expiry, usage limits, redemption, revocation and admin invite history.
 - Group member role changes, member removal, leave-group safeguards and creator/last-admin protections.
 - Equal and custom per-member expense splits with server-side paise and total validation.
+- Expense voiding with a required reason and append-only correction ledger entry; original expense records are retained.
 - Group ledger history, admin-recorded manual cash entries marked unverified.
 - Admin-only vault spending with balance checks and configurable low-balance threshold.
 - FCM web device registration, foreground/background notifications and group activity alerts.
-- Settlement suggestions based on recorded expense shares.
+- Settlement suggestions based on recorded expense shares and mutually confirmed settlement offsets.
+- Settlement reports can be acknowledged by the other participant; the status remains party-confirmed, not provider-verified.
 - Participant settlement reports marked unverified; reports do not alter balances or claim payment completion.
 - Razorpay order creation with server-side credentials, checkout signature validation, provider payment-status lookup and payment.captured webhook verification.
 - Idempotent payment finalization: duplicate webhook/callable delivery for the same captured payment does not credit the vault twice.
@@ -39,7 +41,7 @@
 - Firebase Emulator Suite tests for auth, rules, group lifecycle, splits, payments and webhook idempotency.
 - App Check and production abuse/rate-limit controls.
 - Extend push notifications to invite lifecycle and additional account events.
-- Expense edit/delete policy and audit-safe correction entries.
+- Full edit workflow; corrections currently use append-only voiding and a replacement expense.
 - Settlement recipient confirmation workflow; a participant report is not independent payment verification.
 - Admin analytics and platform-level administration.
 - Accessibility, security, performance and responsive device QA.
