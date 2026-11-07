@@ -9,7 +9,8 @@ import { login, logout, register, resetPassword } from './auth';
 type Group={id:string;name:string;currency?:string};
 type Expense={id:string;description:string;amountPaise:number;createdAt?:{toDate?:()=>Date}};
 type Transfer={fromUid:string;toUid:string;amountPaise:number};
-type GroupMember={uid:string;displayName:string;email:string;role:'admin'|'member'};\ntype LedgerEntry={id:string;type:string;description:string;amountPaise:number;verification:string;createdAt:string|null};
+type GroupMember={uid:string;displayName:string;email:string;role:'admin'|'member'};
+type LedgerEntry={id:string;type:string;description:string;amountPaise:number;verification:string;createdAt:string|null};
 type GroupInvite={id:string;status:string;uses:number;maxUses:number;expiresAt:string|null};
 const money=(paise:number)=>new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR'}).format((paise||0)/100);
 
@@ -20,7 +21,8 @@ export default function App(){
  const [modal,setModal]=useState<'group'|'expense'|'contribution'|null>(null),[groupName,setGroupName]=useState(''),[description,setDescription]=useState(''),[amount,setAmount]=useState('');
  const [inviteToken,setInviteToken]=useState('');
  const [transfers,setTransfers]=useState<Transfer[]|null>(null);
- const [members,setMembers]=useState<GroupMember[]>([]);\n const [ledger,setLedger]=useState<LedgerEntry[]>([]);
+ const [members,setMembers]=useState<GroupMember[]>([]);
+ const [ledger,setLedger]=useState<LedgerEntry[]>([]);
  const [invites,setInvites]=useState<GroupInvite[]>([]);
  const [inviteInput,setInviteInput]=useState(new URLSearchParams(window.location.search).get('invite')||'');
  useEffect(()=>onAuthStateChanged(auth,u=>{setUser(u);setLoading(false)}),[]);
