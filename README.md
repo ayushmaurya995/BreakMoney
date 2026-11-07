@@ -10,10 +10,10 @@ BreakMoney is a shared-expense management web application for friends, roommates
 - User profile documents and group membership directory.
 - Create groups, invite links with hashed tokens, expiry and usage limits.
 - Admin role changes, member removal, leave-group safeguards and invite revocation.
-- Record expenses with equal or custom per-member splits (integer paise validation).
+- Record expenses with equal or custom per-member splits (integer paise validation), plus append-only void corrections with reasons.
 - Live vault summary and expense activity.
 - Group ledger history, manual cash entries clearly marked unverified.
-- Settlement suggestions and unverified settlement reports.
+- Settlement suggestions, unverified settlement reports and recipient confirmation; party confirmation updates outstanding balances but is not provider proof.
 - Admin vault spending, configurable low-balance threshold and FCM notifications for group activity.
 - Razorpay order creation, server-side signature verification, payment status confirmation and idempotent payment.captured webhook processing.
 - Firestore and Storage security rules.
