@@ -1,0 +1,9 @@
+rules_version = '2';
+service firebase.storage {
+ match /b/{bucket}/o {
+  function signedIn(){return request.auth != null;}
+  function isMember(groupId){return signedIn() && firestore.exists(/databases/(default)/documents/groups/$(groupId)/members/$(request.auth.uid));}
+  match /groups/{groupId}/receipts/{fileName}{allow read:if isMember(groupId);allow write:if isMember(groupId) && request.resource.size < 5 * 1024 * 1024 && request.resource.contentType.matches('image/.*|application/pdf');}
+  match /{allPaths=**}{allow read,write:false;}
+ }
+}
