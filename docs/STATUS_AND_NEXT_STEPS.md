@@ -34,7 +34,7 @@
 - Run and fix the GitHub Actions build; dependency installation and compilation have not been locally verified in this environment.
 - Firebase Emulator Suite tests for auth, rules, group lifecycle, splits, payments and webhook idempotency.
 - App Check and production abuse/rate-limit controls.
-- FCM push notifications and low-vault alerts.
+- Extend push notifications to invite lifecycle and additional account events.
 - Expense edit/delete policy and audit-safe correction entries.
 - Settlement recipient confirmation workflow; a participant report is not independent payment verification.
 - Admin analytics and platform-level administration.
