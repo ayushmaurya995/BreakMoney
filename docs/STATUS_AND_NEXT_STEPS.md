@@ -11,12 +11,12 @@
 - Dashboard invite-link creation and invite acceptance through the `?invite=` URL parameter.
 - Admin-only manual cash contribution ledger entry, explicitly marked `manual_unverified`.
 - Settlement suggestion calculation from recorded expenses; suggestions do not initiate or confirm payments.
-- Dashboard controls for invites, manual cash entries and settlement suggestions.
+- Dashboard controls for invites, manual cash entries and settlement suggestions.\n- Secure callable group-member directory with profile names, email addresses and admin/member roles.\n- Basic user profile document created during registration.\n- Invite-link display survives clipboard permission failures.
 - Deny-by-default Firestore rules and member-scoped receipt storage rules.
 - Firebase Hosting SPA configuration.
 
 ## Remaining work
-- Member directory, role changes, remove/leave group and invite revocation.
+- Role changes, remove/leave group and invite revocation.
 - Verified digital contributions, vault debit operations and low-balance notifications.
 - Settlement confirmation records and Razorpay-backed payment flow with webhook idempotency.
 - Custom/percentage splits, expense editing and deletion policy.
