@@ -14,13 +14,13 @@ const tokenHash = (token: string) => createHash('sha256').update(token).digest('
 async function notifyGroupMembers(groupId: string, title: string, body: string, excludeUid?: string) {
   try {
     const members = await db.collection('groups').doc(groupId).collection('members').where('status', '==', 'active').get();
-    const tokenRows: Array<{ token: string; ref: FirebaseFirestore.DocumentReference }> = [];
+    const tokenRows: Array<{ token: string; remove: () => Promise<unknown> }> = [];
     for (const member of members.docs) {
       if (member.id === excludeUid) continue;
       const tokens = await db.collection('users').doc(member.id).collection('deviceTokens').get();
       for (const tokenDoc of tokens.docs) {
         const token = String(tokenDoc.data().token ?? '');
-        if (token) tokenRows.push({ token, ref: tokenDoc.ref });
+        if (token) tokenRows.push({ token, remove: () => tokenDoc.ref.delete() });
       }
     }
     for (let offset = 0; offset < tokenRows.length; offset += 500) {
@@ -33,7 +33,7 @@ async function notifyGroupMembers(groupId: string, title: string, body: string, 
       await Promise.all(result.responses.map((item, index) => {
         const code = item.error?.code ?? '';
         return ['messaging/registration-token-not-registered', 'messaging/invalid-registration-token'].includes(code)
-          ? batch[index].ref.delete()
+          ? batch[index].remove()
           : Promise.resolve();
       }));
     }
