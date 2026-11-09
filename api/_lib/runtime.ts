@@ -10,5 +10,5 @@ export function onCall(optionsOrHandler: any, maybeHandler?: any) {
 }
 export function onRequest(optionsOrHandler: any, maybeHandler?: any) {
   const handler = typeof optionsOrHandler === 'function' ? optionsOrHandler : maybeHandler;
-  return async (request: any, response: any) => handler(request, response);
+  return async (request: any, response: any) => { request.header ??= (name: string) => request.headers?.[name.toLowerCase()]; return handler(request, response); };
 }
