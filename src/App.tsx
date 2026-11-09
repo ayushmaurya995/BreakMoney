@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { onAuthStateChanged, type User } from 'firebase/auth';
 import { collection, doc, getDoc, limit, onSnapshot, orderBy, query } from 'firebase/firestore';
-import { httpsCallable } from 'firebase/functions';
+import { httpsCallable } from './api';
 import { ArrowUpRight, Check, CreditCard, LayoutDashboard, LogOut, Plus, ReceiptText, Users, Wallet, UserPlus, Banknote } from 'lucide-react';
 import { auth, db, firebaseConfigured, functions } from './firebase';
 import { login, logout, register, resetPassword } from './auth';
