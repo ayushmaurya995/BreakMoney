@@ -1,5 +1,5 @@
 import { getMessaging, getToken, isSupported, onMessage, type MessagePayload } from 'firebase/messaging';
-import { httpsCallable } from 'firebase/functions';
+import { httpsCallable } from './api';
 import { app, firebaseConfigured, functions } from './firebase';
 
 export async function enablePushNotifications(): Promise<void> {
