@@ -1,12 +1,12 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
-import { initializeApp } from 'firebase-admin/app';
+import { applicationDefault, cert, initializeApp } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { getMessaging } from 'firebase-admin/messaging';
-import { onCall, onRequest, HttpsError } from './_lib/runtime.js';
+import { onCall, onRequest, HttpsError } from './runtime.js';
 import { defineSecret } from './_lib/runtime.js';
-import { splitEqually, validateCustomSplit, calculateSettlementTransfers } from '../functions/src/domain.js';
+import { splitEqually, validateCustomSplit, calculateSettlementTransfers } from '../../functions/src/domain.js';
 import { setGlobalOptions } from './_lib/runtime.js';
-initializeApp();
+initializeApp(process.env.FIREBASE_SERVICE_ACCOUNT ? { credential: cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)) } : { credential: applicationDefault() });
 setGlobalOptions({ region: 'asia-south1', maxInstances: 10 });
 const db = getFirestore();
 const requireUid = (uid?: string) => { if (!uid) throw new HttpsError('unauthenticated', 'Please sign in first.'); return uid; };
