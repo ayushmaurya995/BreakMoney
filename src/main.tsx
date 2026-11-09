@@ -29,11 +29,30 @@ function showMessage(title: string, message: string, detail?: string) {
 }
 
 if (missingKeys.length > 0) {
-  showMessage(
-    'Firebase setup required',
-    'The website is deployed, but these Firebase environment variables were not included in this production build.',
-    'Missing: ' + missingKeys.join(', ') + '. Add them in Vercel → Project Settings → Environment Variables, select Production, then create a new deployment.'
-  );
+  import('./Landing')
+    .then(({ default: Landing }) => {
+      root.render(
+        <React.StrictMode>
+          <Landing
+            onGetStarted={() => showMessage(
+              'Firebase setup required',
+              'The BreakMoney landing page is ready, but sign-up cannot start until the Firebase web configuration is included in the production build.',
+              'Missing: ' + missingKeys.join(', ') + '. Add these in Vercel → Project Settings → Environment Variables, select Production, then redeploy.'
+            )}
+            onSignIn={() => showMessage(
+              'Firebase setup required',
+              'Sign-in is temporarily unavailable until the Firebase configuration is included in the production build.',
+              'Missing: ' + missingKeys.join(', ') + '. Add these in Vercel → Project Settings → Environment Variables, select Production, then redeploy.'
+            )}
+          />
+        </React.StrictMode>
+      );
+    })
+    .catch((error: unknown) => {
+      const detail = error instanceof Error ? error.message : String(error);
+      showMessage('BreakMoney could not start', 'The landing page failed to load.', detail);
+      console.error('BreakMoney landing startup failed:', error);
+    });
 } else {
   import('./App')
     .then(({ default: App }) => {
