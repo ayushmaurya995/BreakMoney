@@ -17,12 +17,12 @@ BreakMoney is a shared-expense management web application for friends, roommates
 - Admin vault spending, configurable low-balance threshold and FCM notifications for group activity.
 - Razorpay order creation, server-side signature verification, payment status confirmation and idempotent payment.captured webhook processing.
 - Firestore and Storage security rules.
-- GitHub Actions build/type-check workflow for web and Cloud Functions.
+- GitHub Actions build/type-check workflow for web and Vercel Functions.
 
 ## Technology
 
 - React + Vite + TypeScript
-- Firebase Authentication, Cloud Firestore, Cloud Functions, Storage and Hosting
+- Firebase Authentication, Cloud Firestore, Vercel Functions, Storage and Hosting
 - Razorpay Checkout (UPI/payment methods supported by the merchant account)
 - Planned Phase 3: Expo + React Native + TypeScript
 
@@ -35,7 +35,7 @@ Firebase is the selected backend. Supabase and Capacitor are not part of the cur
 3. Copy .env.example to .env.local and add the Firebase web app configuration values.
 4. Run npm run dev.
 5. Build the web client with npm run build.
-6. Build Cloud Functions with cd functions && npm install && npm run build.
+6. Build Vercel Functions with cd functions && npm install && npm run build.
 
 ## Razorpay setup (server-side secrets only)
 
@@ -43,19 +43,17 @@ The web app does not contain a Razorpay secret. Before enabling payments:
 
 1. Enable the Firebase Blaze plan and configure a budget alert.
 2. Create/activate a Razorpay account and obtain test keys first.
-3. Configure these Firebase Functions secrets using the Firebase CLI:
+3. Configure these Vercel Functions secrets using the Firebase CLI:
 
 ```bash
-firebase functions:secrets:set RAZORPAY_KEY_ID
-firebase functions:secrets:set RAZORPAY_KEY_SECRET
-firebase functions:secrets:set RAZORPAY_WEBHOOK_SECRET
+Set RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET and RAZORPAY_WEBHOOK_SECRET in Vercel Project → Settings → Environment Variables
 ```
 
 4. In Firebase Console, enable Cloud Messaging for the web app and add its Web Push certificate public key as VITE_FIREBASE_VAPID_KEY in .env.local.
 5. Enable automatic payment capture in the Razorpay dashboard. BreakMoney credits the group ledger only after Razorpay reports a captured payment.
-6. Deploy Cloud Functions. Configure a Razorpay webhook for the payment.captured event at:
+6. Deploy Vercel Functions. Configure a Razorpay webhook for the payment.captured event at:
 
-https://asia-south1-break-a01f4.cloudfunctions.net/razorpayWebhook
+https://YOUR-VERCEL-DOMAIN/api/razorpay-webhook
 
 7. Use Razorpay test mode and verify success, failure, duplicate webhook delivery and mismatched amount scenarios before live mode.
 
@@ -66,17 +64,17 @@ Never place payment secrets in .env.local, browser code, GitHub or a public repo
 ```bash
 firebase use break-a01f4
 firebase deploy --only firestore:rules,storage
-firebase deploy --only functions
+Deploy the API automatically through Vercel
 npm run build
-firebase deploy --only hosting
+Deploy the web app automatically through Vercel
 ```
 
-Cloud Functions deployment requires an eligible billing plan. Hosting and rules should only be deployed after reviewing the Firebase project and rules in the target environment.
+Vercel Functions deployment requires an eligible billing plan. Hosting and rules should only be deployed after reviewing the Firebase project and rules in the target environment.
 
 ## Financial and legal boundaries
 
 - Monetary values are stored as integer paise.
-- All financial writes are performed by trusted Cloud Functions.
+- All financial writes are performed by trusted Vercel Functions.
 - A Firestore vault is an application accounting ledger; it is not custody of pooled customer funds.
 - A verified Razorpay contribution means the provider confirmed capture; it does not mean BreakMoney holds a regulated wallet balance or offers withdrawals.
 - Manual cash entries and participant-reported settlements remain explicitly unverified.
