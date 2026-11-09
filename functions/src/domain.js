@@ -36,7 +36,7 @@ export function calculateSettlementTransfers(expenses, settlements = []) {
     net.set(settlement.toUid, (net.get(settlement.toUid) ?? 0) - settlement.amountPaise);
   }
   const creditors = [...net.entries()].filter(([, value]) => value > 0).map(([uid, amount]) => ({ uid, amount })).sort((a, b) => b.amount - a.amount);
-  const debtors = [...net.entries()].filter(([, value]) => value < 0).map(([uid, amount]) => ({ uid, amount: -value })).sort((a, b) => b.amount - a.amount);
+  const debtors = [...net.entries()].filter(([, value]) => value < 0).map(([uid, value]) => ({ uid, amount: -value })).sort((a, b) => b.amount - a.amount);
   const transfers = [];
   let i = 0, j = 0;
   while (i < debtors.length && j < creditors.length) {
